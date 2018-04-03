@@ -3,6 +3,8 @@ require 'matrix'
 module Powerbot
   # Traikoa API
   module Traikoa
+    EDDB_URL = 'https://eddb.io'.freeze
+
     # Position in 3D space
     module Position
       attr_reader :x
@@ -18,12 +20,55 @@ module Powerbot
       end
     end
 
+    # Station
+    class Station
+      # @return [Integer] station id
+      attr_reader :id
+
+      # @return [Integer] eddb station id
+      attr_reader :eddb_id
+
+      # @return [String] station name
+      attr_reader :name
+
+      # @return [true, false] whether the station is planetary
+      attr_reader :planetary
+      alias planetary? planetary
+
+      # @return [String] pad size
+      attr_reader :pad_size
+
+      # @return [Integer] station distance from primary star
+      attr_reader :distance
+
+      def initialize(data)
+        @id = data[:id]
+
+        @eddb_id = data[:eddb_id]
+
+        @name = data[:name]
+
+        @planetary = data[:is_planetary]
+
+        @pad_size = data[:pad_size]
+
+        @distance = data[:distance]
+      end
+
+      def eddb_url
+        "#{EDDB_URL}/station/#{eddb_id}"
+      end
+    end
+
     # A System in space
     class System
       include Position
 
       # @return [Integer] system ID
       attr_reader :id
+
+      # @return [Integer] eddb system ID
+      attr_reader :eddb_id
 
       # @return [String] name
       attr_reader :name
@@ -62,6 +107,7 @@ module Powerbot
 
       def initialize(data)
         @id = data[:id]
+        @eddb_id = data[:eddb_id]
         @name = data[:name]
         @x = data[:position][:x]
         @y = data[:position][:y]
@@ -70,7 +116,7 @@ module Powerbot
         @allegiance = data[:allegiance]
         @security = data[:security]
         @needs_permit = data[:needs_permit]
-        @stations = data[:stations]
+        @stations = data[:stations].map { |e| Station.new e }
         @cc_value = data[:cc_value]
         @contested = data[:contested]
         @exploitations = data[:exploitations]
@@ -102,6 +148,15 @@ module Powerbot
       # @return [true, false] whether this system is exploited
       def exploited?
         @exploitations.any?
+      end
+
+      # @return [ControlSystem, nil] the control system bound to this system, if present
+      def control_system
+        ControlSystem.load control_system_id if control_system_id
+      end
+
+      def eddb_url
+        "#{EDDB_URL}/system/#{eddb_id}"
       end
     end
 
@@ -151,7 +206,42 @@ module Powerbot
       # Get a list of powers
       # @return [Hash] hash structures resembling a Power
       def self.list
-        API::Power.list
+        API::Power.list.map { |data| new data }
+      end
+    end
+
+    class ControlData
+      attr_reader :timestamp
+
+      attr_reader :discord_id
+
+      attr_reader :upkeep_default
+
+      attr_reader :upkeep_undermined
+
+      attr_reader :upkeep
+
+      attr_reader :status
+
+      attr_reader :fortification_trigger
+
+      attr_reader :fortification_progress
+
+      attr_reader :undermining_trigger
+
+      attr_reader :undermining_progress
+
+      def initialize(data)
+        @timestamp = data[:timestamp]
+        @discord_id = data[:discord_id]
+        @upkeep_default = data[:upkeep_default]
+        @upkeep_undermined = data[:upkeep_undermined]
+        @upkeep = data[:upkeep]
+        @status = data[:status]
+        @fortification_trigger = data[:fortification_trigger]
+        @fortification_progress = data[:fortification_progress]
+        @undermining_trigger = data[:undermining_trigger]
+        @undermining_progress = data[:undermining_progress]
       end
     end
 
@@ -169,7 +259,7 @@ module Powerbot
       # @return [System] system that hosts this control system
       attr_reader :system
 
-      # @return [Hash] volatile data related to this control system
+      # @return [ControlData] volatile data related to this control system
       attr_reader :control_data
       alias data control_data
 
@@ -180,7 +270,7 @@ module Powerbot
         @id = data[:id]
         @power_id = data[:power_id]
         @system_id = data[:system_id]
-        @control_data = data[:control_data]
+        @control_data = ControlData.new data[:control_data] if data[:control_data]
         @exploitations = data[:exploitations]
 
         @system = sys || System.load(@system_id)
@@ -213,6 +303,11 @@ module Powerbot
         results = API::ControlSystem.search ids
         results.map { |cs| ControlSystem.new cs }
       end
+
+      # Load the power associated with this ControlSystem
+      def power
+        @power ||= Power.load(power_id)
+      end
     end
 
     # Cmdr
@@ -240,7 +335,8 @@ module Powerbot
       # @param discord_id [Integer] discord_id of the cmdr
       # @return [Cmdr]
       def self.load(discord_id)
-        new API::Cmdr.get discord_id
+        data = API::Cmdr.get discord_id
+        new(data) if data
       end
 
       # Register (create) a new Cmdr
@@ -271,6 +367,12 @@ module Powerbot
       # Generic POST request
       def post(path = '', payload = {})
         response = RestClient.post "#{API_URL}/#{API_VERSION}/#{path}", payload.to_json, { content_type: :json }
+        JSON.parse response
+      end
+
+      # Generic PATCH request
+      def patch(path = '', payload = {})
+        response = RestClient.patch "#{API_URL}/#{API_VERSION}/#{path}", payload.to_json, { content_type: :json }
         JSON.parse response
       end
 
@@ -319,6 +421,20 @@ module Powerbot
         def search(ids)
           get 'search', ids: ids
         end
+
+        def post_data(id, discord_id, fortification_progress: nil, fortification_trigger: nil, undermining_progress: nil, undermining_trigger: nil, upkeep_default: nil, upkeep_undermined: nil)
+          API.post(
+            "#{NAMESPACE}/#{id}/control_data",
+            {
+              fortification_progress: fortification_progress,
+              fortification_trigger: fortification_trigger,
+              undermining_progress: undermining_progress,
+              undermining_trigger: undermining_trigger,
+              upkeep_default: upkeep_default,
+              upkeep_undermined: upkeep_undermined
+            }.compact
+          )
+        end
       end
 
       module Power
@@ -357,6 +473,17 @@ module Powerbot
               system_id: system_id,
               power_id: power_id
             }
+          )
+        end
+
+        def patch(discord_id, discord_name: nil, system_id: nil, power_id: nil)
+          API.patch(
+            "#{NAMESPACE}/#{discord_id}",
+            {
+              discord_name: discord_name,
+              system_id: system_id,
+              power_id: power_id
+            }.compact
           )
         end
 

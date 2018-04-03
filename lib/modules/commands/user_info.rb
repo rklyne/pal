@@ -7,13 +7,24 @@ module Powerbot
 
       command([:ui, :user_info],
               description: 'shows you information about yourself or another member',
-              usage: "#{BOT.prefix}user_info") do |event|
+              usage: "#{BOT.prefix}user_info") do |event, *tag|
         next 'This command can only be used in servers.' if event.channel.private?
 
-        member   = event.message.mentions.first unless event.message.mentions.empty?
-        member ||= event.user
+        member = if event.message.mentions.any?
+                   event.message.mentions.first
+                 elsif tag.any?
+                   name, discrim = tag.join.split('#')
+                   user = event.bot.find_user(name, discrim)
+                   user.is_a?(Array) ? user.first : user
+                 else
+                   event.user
+                end
 
-        member = member.on(event.server) if member.is_a? Discordrb::User
+        next 'Member not found' unless member
+
+        member = member.on(event.server)
+
+        next 'User is not on this server' unless member
 
         event.channel.send_embed do |e|
           e.author = {
@@ -22,7 +33,7 @@ module Powerbot
 
           e.thumbnail = { url: member.avatar_url }
 
-          e.color = member.roles.sort_by(&:position).last.color.combined
+          e.color = member.roles.any? ? member.roles.sort_by(&:position).last.color.combined : 0
 
           time = TimeDifference.between(::Time.now, member.joined_at)
                                .humanize

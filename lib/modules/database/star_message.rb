@@ -24,7 +24,7 @@ module Powerbot
       end
 
       def author
-        BOT.user author_id
+        BOT.member channel.server, author_id
       end
 
       def rep
@@ -45,6 +45,33 @@ module Powerbot
 
       def dead?
         stars.count.zero?
+      end
+
+      def embed
+        msg = starred_message
+        e = Discordrb::Webhooks::Embed.new(
+          description: msg.content,
+          author: { name: author.name, icon_url: author.avatar_url },
+          timestamp: msg.timestamp,
+          footer: { text: "id: #{id}" },
+          color: 0xf7a631
+        )
+
+        e.image = { url: msg.attachments.first.url } if msg.attachments.any?
+
+        uris = URI.extract msg.content
+        if e.image.nil? && uris.any?
+          uri = uris.first
+          e.image = { url: uri } if %w(images.discordapp.net .jpg .png .gif).any? { |f| uri.include? f }
+        end
+
+        e
+      end
+
+      dataset_module do
+        def random
+          order(Sequel.lit('RANDOM()'))
+        end
       end
     end
 

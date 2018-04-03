@@ -16,13 +16,17 @@ module Powerbot
   # Event scheduler
   SCHEDULER = Rufus::Scheduler.new
 
+  # Logging file
+  Discordrb::LOGGER.streams << File.open("logs/#{::Time.now.strftime('%F %T')}", 'w')
+
   # Create the bot.
   # The bot is created as a constant, so that you
   # can access the cache anywhere.
   BOT = Discordrb::Commands::CommandBot.new(client_id: CONFIG.client_id,
                                             token: CONFIG.token,
                                             prefix: CONFIG.prefix,
-                                            help_command: :halp)
+                                            help_command: false,
+                                            fancy_log: true)
 
   # Discord commands
   module DiscordCommands; end

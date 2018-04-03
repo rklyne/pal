@@ -1,4 +1,5 @@
 module Powerbot
+
   module DiscordCommands
     # Commands related to the Traikoa API
     module Traikoa
@@ -12,7 +13,7 @@ module Powerbot
         name = name.join ' '
         sys = Powerbot::Traikoa::System.search(name).first
         next 'System not found..' unless sys
-        event.channel.send_message '', nil, system_embed(sys)
+        event.channel.send_embed "🌟 **#{sys.name}**", system_embed(sys)
       end
 
       # Displays a collection of distances to multiple systems
@@ -29,10 +30,11 @@ module Powerbot
 
         systems = names.map { |n| Powerbot::Traikoa::System.search(n).first }
 
+        event << "**#{origin.name}**"
         systems.each_with_index do |s, i|
           event << "System not found: `#{names[i]}`" if s.nil?
           next if s.nil?
-          event << "`#{origin.name} → #{s.name} : #{origin.distance(s).round 2} ly`"
+          event << "→ #{s.name} : `#{origin.distance(s).round 2} ly`"
         end
         nil
       end
@@ -46,19 +48,24 @@ module Powerbot
         names = names.join(' ').split(',').map(&:strip)
         next 'Please specify three or more systems.' unless names.count > 2
 
-        systems = names.map { |n| Powerbot::Traikoa::System.search(n).first }.compact
+        systems = names.map { |n| Powerbot::Traikoa::System.search(n).first || n }
 
-        systems.sort! do |a, b|
-          next -1 if a == systems.first
-          distance_a = systems.map { |s| s.distance a unless a == s }.compact.min
-          distance_b = systems.map { |s| s.distance b unless b == s }.compact.min
-          distance_a <=> distance_b
+        if systems.any? { |e| e.is_a? String }
+          systems.select { |e| e.is_a? String }.each do |e|
+            event << "Unknown system: `#{e}`"
+          end
+
+          next
         end
 
-        systems.each_with_index do |s, i|
-          nex = systems[i + 1]
-          event << "`#{s.name} → #{nex.name} (#{s.distance(nex).round 2} ly)`" if nex
+        event << "**#{systems.first.name}** (`origin`)"
+        until systems.count == 1 do
+          origin  = systems.shift
+          systems.sort_by! { |s| s.distance(origin) }
+          nex = systems.first
+          event << "→ #{nex.name} (`#{origin.distance(nex).round 2} ly`)"
         end
+
         nil
       end
 
@@ -96,10 +103,10 @@ module Powerbot
           e.author = { name: 'Bubble Analysis', icon_url: "#{BOT.profile.avatar_url}" }
 
           e.description = "Overview for **#{sys.name}**\n\n"\
-                          "Total: #{total_cc}\n"\
-                          "Uncontrolled: #{uncontrolled_cc}\n"\
-                          "Controlled: #{controlled_cc}\n"\
-                          "Contested: #{contested_cc}"
+                          "Total: #{total_cc || 0}\n"\
+                          "Uncontrolled: #{uncontrolled_cc || 0}\n"\
+                          "Controlled: #{controlled_cc || 0}\n"\
+                          "Contested: #{contested_cc || 0}"
 
           control_systems.each do |cs|
             systems = bubble.select { |s| s.exploitations.include? cs.id }
@@ -146,11 +153,21 @@ module Powerbot
         '☑️'
       end
 
+      # Sets the power assigned to the Discord
+      command(:set_power, permission_level: 3, help_available: false) do |event, *power|
+        power = Powerbot::Traikoa::Power.list.find { |p| p.name == power.join(' ') }
+        next 'power not found' unless power
+        data = Database::Metadata.create? snowflake: event.server.id
+        data.merge({ power_id: power.id })
+        '☑️'
+      end
+
       module_function
 
       def system_embed(sys)
         e = Discordrb::Webhooks::Embed.new(
-          title: "🌟 #{sys.name}",
+          title: 'View on EDDB',
+          url: sys.eddb_url,
           colour: 0xFCCB0D,
           footer: { text: "id: #{sys.id} x: #{sys.x} y: #{sys.y} z: #{sys.z}" }
         )
@@ -166,13 +183,24 @@ module Powerbot
           inline: true
         )
 
+        stations = sys.stations.sort_by { |s| s.distance || 0 }.take(10)
+
         if sys.stations.any?
           e.add_field(
-            name: 'Stations',
-            value: sys.stations.map { |s| "[#{s[:pad_size]}] #{s[:name]}, #{s[:distance].nil? ? '?' : s[:distance]}ls #{s[:is_planetary] ? '(planetary)' : ''}" }.join("\n"),
+            name: "Stations (#{stations.count} / #{sys.stations.count})",
+            value: stations.map { |s| "[#{s.pad_size}] [#{s.name}](#{s.eddb_url}), #{s.distance.nil? ? '?' : s.distance}ls #{s.planetary? ? '(planetary)' : ''}" }.join("\n"),
             inline: true
           )
         end
+
+        if sys.exploitations.any?
+          control_systems = sys.exploitations.map { |id| Powerbot::Traikoa::ControlSystem.load(id) }
+          e.add_field(
+            name: 'Powerplay',
+            value: control_systems.map { |cs| "#{cs.power.name} (#{cs.name})" }.join("\n")
+          )
+        end
+
         e
       end
     end

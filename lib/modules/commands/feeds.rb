@@ -13,7 +13,7 @@ module Powerbot
         event.channel.send_embed(
           'Feeds available in this server:',
           Discordrb::Webhooks::Embed.new(
-            description: feeds.map(&:name).join("\n"),
+            description: feeds.map { |f| "#{f.name} (#{f.channel.mention})" }.join("\n"),
             footer: { text: 'use pal.sub [feed name] to sub to a feed'}
           )
         )
@@ -53,6 +53,26 @@ module Powerbot
         maybe_existing_feed.destroy
 
         '👌'
+      end
+
+      # Set notification channel
+      command(:feed_notify,
+              description: 'Toggles this channel to recieve update notifications from a feed',
+              usage: "#{BOT.prefix}feed_notify memes",
+              permission_level: 3) do |event, *name|
+        next if event.channel.pm?
+        name = name.join ' '
+
+        maybe_existing_feed = Database::Feed.find server_id: event.server.id, name: name
+        next 'Feed not found. Use `pal.feeds` for a list of feeds.' unless maybe_existing_feed
+
+        if maybe_existing_feed.notification_channel_id
+          maybe_existing_feed.update notification_channel_id: nil
+          "Notifications disabled for feed **#{maybe_existing_feed.name}**"
+        else
+          maybe_existing_feed.update notification_channel_id: event.channel.id
+          "Notifications set for feed **#{maybe_existing_feed.name}**"
+        end
       end
 
       # Subscribe to feed
@@ -110,19 +130,21 @@ module Powerbot
         next 'Not enough arguments. Format: `pal.push feed | title | content`' if args.count < 3
 
         name    = args.shift
-        title   = args.shift
+        title   = args.shift.delete('*')
         content = args.join '|'
 
         maybe_existing_feed = Database::Feed.find server_id: event.server.id, name: name
         next 'Feed not found. Use `pal.feeds` for a list of feeds.' unless maybe_existing_feed
         next "Title too long (#{content.length} / 100)" if title.length > 100
+        next "Missing title (#{content.length} / 100)" if title.length < 1
         next 'Content too long' if content.length > 2048
         next "Too many fields (#{fields.count} / 25)" if content.count('|') > 25
 
         post = maybe_existing_feed.add_feed_post(
           title: title,
           author_id: event.user.id,
-          content: content
+          content: content,
+          attachment_url: event.message.attachments.first&.url
         )
         post.update_post
 

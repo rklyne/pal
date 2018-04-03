@@ -19,6 +19,21 @@ module Powerbot
         nil
       end
 
+      # Event handler that sends a custom greeting message upon a member joining.
+      member_join do |event|
+        options = Database::Metadata.read(event.server.id, true)
+        next unless options['greeting_enabled']
+
+        greeting_string = options['greeting_string'] || "Welcome to **#{event.server.name}**, #{event.user.mention}!"
+        greeting_channel = options['greeting_channel'].nil? ? event.server.default_channel : BOT.channel(options['greeting_channel'])
+
+        # Greeting string option replacements
+        greeting_string.gsub!('%server%', event.server.name)
+        greeting_string.gsub!('%user%', event.user.mention)
+
+        greeting_channel.send_message greeting_string
+      end
+
       module_function
 
       def user_embed(user, join)
@@ -32,6 +47,7 @@ module Powerbot
         e.description = "**#{user.distinct}** (#{user.mention})"
         e.footer = { text: user.id.to_s }
         e.timestamp = Time.now
+        e.add_field(name: 'Joined Discord', value: user.creation_time)
         e
       end
     end

@@ -5,7 +5,7 @@ module Powerbot
 
       def before_create
         role         = server.create_role
-        role.name    = name
+        role.name    = "feed-#{name}"
         role.packed  = 0
         self.role_id = role.id
       end
@@ -24,6 +24,10 @@ module Powerbot
 
       def channel
         BOT.channel channel_id
+      end
+
+      def notification_channel
+        BOT.channel(notification_channel_id) if notification_channel_id
       end
     end
   end

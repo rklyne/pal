@@ -5,8 +5,26 @@ module Powerbot
         create snowflake: snowflake, data: data.to_json
       end
 
+      def self.create?(data)
+        find_or_create data
+      end
+
+      def before_create
+        self.data ||= '{}'
+      end
+
       def read
         JSON.parse data
+      end
+
+      def self.read(snowflake, create_if_nil = false)
+        m = find(snowflake: snowflake)&.read
+
+        if create_if_nil && m.nil?
+          create snowflake: snowflake, data: {}.to_json
+        else
+          m
+        end
       end
 
       def write(hash)

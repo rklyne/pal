@@ -23,6 +23,27 @@ module Powerbot
         message.nil?
       end
 
+      # Store a Discordrb::Message
+      def self.store(message)
+        create(
+         timestamp: message.timestamp,
+         server_id: message.channel.server.id,
+         server_name: message.channel.server.name,
+         channel_id: message.channel.id,
+         channel_name: message.channel.name,
+         user_id: message.user.id,
+         user_name: message.user.distinct,
+         message_id: message.id,
+         message_content: message.content,
+         attachment_url: message.attachments.first&.url
+        )
+      end
+
+      # Convert a message to TSV
+      def to_tsv
+        self.to_hash.values.join("\t")
+      end
+
       # Dump all messages to a file
       def self.dump
         servers = all.collect(&:server_id).uniq
