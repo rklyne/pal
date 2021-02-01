@@ -6,7 +6,12 @@ module Powerbot
 
       def syndicate(message)
         relay_targets.each do |t|
-          t.syndicate(message) unless t.server == message.channel.server
+          begin
+            t.syndicate(message) unless t.server == message.channel.server
+          rescue => e
+            Discordrb::LOGGER.warn("Could not syndicate to relay target #{t}")
+            Discordrb::LOGGER.error(e)
+          end
         end
       end
     end
